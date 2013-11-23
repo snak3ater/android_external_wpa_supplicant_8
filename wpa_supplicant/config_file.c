@@ -19,7 +19,7 @@
 #include "p2p/p2p.h"
 #include "eap_peer/eap_methods.h"
 #include "eap_peer/eap.h"
-
+#include "crypto/sha1.h"
 
 static int newline_terminated(const char *buf, size_t buflen)
 {
@@ -484,10 +484,33 @@ static void write_bssid(FILE *f, struct wpa_ssid *ssid)
 
 static void write_psk(FILE *f, struct wpa_ssid *ssid)
 {
+    unsigned char psk[32];
 	char *value = wpa_config_get(ssid, "psk");
-	if (value == NULL)
+    char *s = wpa_config_get(ssid, "ssid");
+	if (value == NULL || s == NULL)
 		return;
-	fprintf(f, "\tpsk=%s\n", value);
+    int slen = os_strlen(s);
+    int plen = os_strlen(value);
+    int pskquoted = (value[0] == '"' && value[plen - 1] == '"') ? 1 : 0;
+    int i;
+    if (pskquoted == 1 || plen < 64) {
+        if (s[slen - 1] == '"' && s[0] == '"') {
+            s[slen - 1] = '\0';
+            s++;
+        }
+        if (pskquoted == 1) {
+            value[plen - 1] = '\0';
+            value++;
+        }
+        pbkdf2_sha1 (value, (u8*)s, os_strlen(s), 4096, psk, 32);
+	    fprintf(f, "\tpsk=", value);
+        for (i = 0; i < 32; i++)
+            fprintf(f, "%02x", psk[i]);
+        fprintf(f, "\n");
+    } else {
+        fprintf(f, "\tpsk=%s\n", value);
+    }
+    os_free(s);
 	os_free(value);
 }
 
